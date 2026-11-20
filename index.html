@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Credit Risk Prediction — Random Forest</title>
+  <meta name="description" content="Educational credit card default prediction using a Random Forest model running locally in the browser.">
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, sans-serif; color:#172033; background:#f5f7fb; }
+    * { box-sizing:border-box; }
+    body { margin:0; line-height:1.5; }
+    main { max-width:1020px; padding:32px 18px 70px; margin:auto; }
+    h1 {font-size:clamp(1.65rem, 4vw, 2.5rem); margin:0 0 8px; }
+    h2 {font-size:1.16rem; margin:0 0 12px; }
+    p { margin:8px 0 14px; }
+    .lead {color:#4d5a70; max-width:800px;}
+    .panel {background:#fff; border:1px solid #dae0ec; border-radius:15px; padding:22px; margin:20px 0; box-shadow:0 3px 14px #1c304809;}
+    .info {background:#f2f5fa; padding:12px 15px; border-radius:10px; font-size:.93rem; color:#3e4b60;}
+    .status {font-weight:650; min-height:25px;}
+    .status.ok {color:#08683e;} .status.bad {color:#9b2133;} .status.loading {color:#6e5412;}
+    .fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px;}
+    .field label {display:block; font-weight:600; font-size:.86rem; margin-bottom:4px;}
+    .field small {display:block; color:#677487; font-size:.75rem; min-height:17px; }
+    input {width:100%; padding:10px 11px; background:white; border:1px solid #acb9cb; border-radius:7px; font-size:1rem;}
+    input:focus {outline:3px solid #c6d8ff; border-color:#205fb4;}
+    button {border:none;border-radius:9px;background:#2455a5;color:white;font-weight:700;cursor:pointer;padding:12px 22px;font-size:1rem;margin:7px 0;}
+    button:disabled {background:#9ba8bf;cursor:not-allowed;}
+    .result {padding:18px;border-radius:10px;border:1px solid #c5d0df;background:#f8fafc;margin-top:16px;}
+    .number {font-size:2rem;font-weight:750;}
+    .muted {font-size:.87rem;color:#66738a;}
+    footer {color:#657389;font-size:.84rem;margin-top:24px;}
+    @media (max-width:540px) {.panel {padding:16px;} main{padding-top:20px;}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Credit Risk Prediction</h1>
+  <p class="lead">Random Forest classification · AAI 6610 educational demonstration · ONNX inference in your browser</p>
+  <div class="info"><strong>Educational demonstration only.</strong> Predictions are not suitable for approving or denying credit. The model was trained on a historical academic dataset and may not generalize to current borrowers. Do not enter actual customers' sensitive or identifying information.</div>
+
+  <section class="panel">
+    <h2>Model status</h2>
+    <p id="status" class="status loading" role="status">Loading model.onnx and prediction engine…</p>
+    <p class="muted">Your inputs are processed locally in this browser, not submitted to an application server. The ONNX Runtime library is downloaded from a public CDN.</p>
+  </section>
+
+  <form id="prediction-form">
+    <section class="panel"><h2>Customer profile</h2><div id="profile" class="fields"></div></section>
+    <section class="panel"><h2>Repayment status</h2><p class="muted">Repayment history codes follow the original UCI dataset. For example, -1 means paid duly, 1 means one month late, and 2 means two months late.</p><div id="repayment" class="fields"></div></section>
+    <section class="panel"><h2>Recent bill statements</h2><div id="bills" class="fields"></div></section>
+    <section class="panel"><h2>Recent payments</h2><div id="payments" class="fields"></div></section>
+    <button id="predict" type="submit" disabled>Predict default probability</button>
+    <div id="result" class="result" hidden aria-live="polite"></div>
+  </form>
+  <footer>Dataset: UCI Default of Credit Card Clients (30,000 records). Model: RandomForestClassifier(n_estimators=200, max_depth=10, random_state=20). The predicted positive class represents default payment next month. The 0.50 classification threshold is illustrative.</footer>
+</main>
+<script type="module">
+  // The input order MUST match the 23 columns used when training with ucimlrepo(id=350).
+  const fields = [
+    ['Credit limit (NT$)', 'profile', 50000, 'X1'],
+    ['Sex (1=male, 2=female)', 'profile', 2, 'X2'],
+    ['Education code', 'profile', 2, 'X3'],
+    ['Marriage code', 'profile', 1, 'X4'],
+    ['Age (years)', 'profile', 30, 'X5'],
+    ['Repayment status, Sep', 'repayment', 0, 'X6'],
+    ['Repayment status, Aug', 'repayment', 0, 'X7'],
+    ['Repayment status, Jul', 'repayment', 0, 'X8'],
+    ['Repayment status, Jun', 'repayment', 0, 'X9'],
+    ['Repayment status, May', 'repayment', 0, 'X10'],
+    ['Repayment status, Apr', 'repayment', 0, 'X11'],
+    ['Bill statement, Sep (NT$)', 'bills', 12000, 'X12'],
+    ['Bill statement, Aug (NT$)', 'bills', 10000, 'X13'],
+    ['Bill statement, Jul (NT$)', 'bills', 9000, 'X14'],
+    ['Bill statement, Jun (NT$)', 'bills', 8000, 'X15'],
+    ['Bill statement, May (NT$)', 'bills', 7000, 'X16'],
+    ['Bill statement, Apr (NT$)', 'bills', 6000, 'X17'],
+    ['Previous payment, Sep (NT$)', 'payments', 2000, 'X18'],
+    ['Previous payment, Aug (NT$)', 'payments', 2000, 'X19'],
+    ['Previous payment, Jul (NT$)', 'payments', 2000, 'X20'],
+    ['Previous payment, Jun (NT$)', 'payments', 2000, 'X21'],
+    ['Previous payment, May (NT$)', 'payments', 2000, 'X22'],
+    ['Previous payment, Apr (NT$)', 'payments', 2000, 'X23']
+  ];
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+  const button = document.getElementById('predict');
+
+  for (let i = 0; i < fields.length; i++) {
+    const [label, group, value, key] = fields[i];
+    const wrapper = document.createElement('div');
+    wrapper.className = 'field';
+    const lbl = document.createElement('label');
+    lbl.htmlFor = `f${i}`;
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'number'; input.step = 'any'; input.required = true;
+    input.id = `f${i}`; input.name = key; input.value = String(value);
+    const hint = document.createElement('small'); hint.textContent = key + ' · sample input shown';
+    wrapper.append(lbl, input, hint);
+    document.getElementById(group).appendChild(wrapper);
+  }
+
+  let ort = null, session = null;
+  function loadRuntimeScript(url) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.onload = () => window.ort
+        ? resolve(window.ort)
+        : reject(new Error('ONNX Runtime loaded but was not initialized.'));
+      script.onerror = () => reject(new Error(`Cannot load ONNX Runtime from ${url}`));
+      document.head.appendChild(script);
+    });
+  }
+  async function loadModel() {
+    try {
+      const version = '1.23.2';
+      // Load the regular browser script instead of an unsupported ESM URL.
+      // Fall back to unpkg if jsDelivr is temporarily unavailable.
+      let runtimeBase = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/`;
+      try {
+        ort = await loadRuntimeScript(`${runtimeBase}ort.wasm.min.js`);
+      } catch (cdnError) {
+        console.warn('Primary ONNX Runtime CDN unavailable:', cdnError);
+        runtimeBase = `https://unpkg.com/onnxruntime-web@${version}/dist/`;
+        ort = await loadRuntimeScript(`${runtimeBase}ort.wasm.min.js`);
+      }
+      ort.env.wasm.wasmPaths = runtimeBase;
+      ort.env.wasm.numThreads = 1;
+      session = await ort.InferenceSession.create('./model.onnx', { executionProviders: ['wasm'] });
+      status.textContent = 'Ready — trained Random Forest loaded successfully';
+      status.className = 'status ok';
+      button.disabled = false;
+    } catch (error) {
+      status.textContent = `Model could not load: ${error.message}. If the runtime loaded, check that model.onnx is in the Space root.`;
+      status.className = 'status bad';
+      console.error(error);
+    }
+  }
+
+  document.getElementById('prediction-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    result.hidden = true;
+    if (!session) { status.textContent = 'Model is not loaded.'; return; }
+    try {
+      const rawValues = fields.map((_, i) => Number(document.getElementById(`f${i}`).value));
+      if (rawValues.some((v) => !Number.isFinite(v))) throw new Error('Please enter a valid number in every field.');
+      button.disabled = true;
+      const inputName = session.inputNames[0];
+      const inputTensor = new ort.Tensor('float32', Float32Array.from(rawValues), [1, 23]);
+      const outputs = await session.run({ [inputName]: inputTensor });
+      // skl2onnx with zipmap=False produces class labels and an [N,2] probability tensor.
+      const probabilityTensor = outputs[session.outputNames[1]];
+      if (!probabilityTensor || probabilityTensor.data.length < 2) {
+        throw new Error('The ONNX model did not return the expected two-class probabilities.');
+      }
+      const probability = Number(probabilityTensor.data[1]);
+      if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
+        throw new Error('The model returned an invalid probability.');
+      }
+      const predictedClass = probability >= 0.5 ? 1 : 0;
+      result.innerHTML = '';
+      const heading = document.createElement('strong'); heading.textContent = 'Predicted probability of default next month';
+      const score = document.createElement('div'); score.className = 'number'; score.textContent = `${(probability * 100).toFixed(1)}%`;
+      const details = document.createElement('p'); details.textContent = `Predicted class at the 0.50 threshold: ${predictedClass} (${predictedClass ? 'default' : 'no default'}).`;
+      const caution = document.createElement('p'); caution.className = 'muted'; caution.textContent = 'Historical educational model only. A predicted probability is not a validated real-world risk estimate.';
+      result.append(heading, score, details, caution);
+      result.hidden = false;
+    } catch (error) {
+      result.textContent = `Prediction failed: ${error.message}`;
+      result.hidden = false;
+      console.error(error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  await loadModel();
+</script>
+</body>
+</html>
